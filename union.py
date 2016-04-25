@@ -5,6 +5,7 @@ import uuid
 import time
 import random
 from datetime import datetime
+from optiname import human_name
 
 print('Loading function ' + datetime.now().time().isoformat())
 route53 = boto3.client('route53')
@@ -63,10 +64,15 @@ def lambda_handler(event, context):
         tags = instance['Reservations'][0]['Instances'][0]['Tags']
     except:
         tags = []
+
+    cluster_id = next(
+        (t["Value"] for t in tags if t["Key"].lower() in ["clusterid", "elasticbeanstalk:environment-name"]),
+        'noroledef')
+    instance_id = instance['Reservations'][0]['Instances'][0]['InstanceId']
     # Get instance attributes
     private_ip = instance['Reservations'][0]['Instances'][0]['PrivateIpAddress']
-    private_dns_name = instance['Reservations'][0]['Instances'][0]['PrivateDnsName']
-    private_host_name = private_dns_name.split('.')[0]
+    private_host_name = "{}-{}-{}".format(cluster_id, instance_id.replace('i-',''), human_name(instance_id))
+    print "Private Host Name: {}".format(private_host_name)
     try:
         public_ip = instance['Reservations'][0]['Instances'][0]['PublicIpAddress']
         public_dns_name = instance['Reservations'][0]['Instances'][0]['PublicDnsName']
@@ -154,13 +160,13 @@ def lambda_handler(event, context):
                                 exit()
                         try:
                             create_resource_record(private_hosted_zone_id, private_host_name, private_hosted_zone_name, 'A', private_ip)
-                            create_resource_record(reverse_lookup_zone_id, reversed_ip_address, 'in-addr.arpa', 'PTR', private_dns_name)
+                            create_resource_record(reverse_lookup_zone_id, reversed_ip_address, 'in-addr.arpa', 'PTR', '.'.join((private_host_name, private_hosted_zone_name)))
                         except BaseException as e:
                             print e
                     else:
                         try:
                             delete_resource_record(private_hosted_zone_id, private_host_name, private_hosted_zone_name, 'A', private_ip)
-                            delete_resource_record(reverse_lookup_zone_id, reversed_ip_address, 'in-addr.arpa', 'PTR', private_dns_name)
+                            delete_resource_record(reverse_lookup_zone_id, reversed_ip_address, 'in-addr.arpa', 'PTR', '.'.join((private_host_name, private_hosted_zone_name)))
                         except BaseException as e:
                             print e
                     # create PTR record
@@ -199,12 +205,12 @@ def lambda_handler(event, context):
                             #create CNAME record in private zone
                             if state == 'running':
                                 try:
-                                    create_resource_record(cname_private_hosted_zone_id, cname_host_name, cname_private_hosted_zone, 'CNAME', private_dns_name)
+                                    create_resource_record(cname_private_hosted_zone_id, cname_host_name, cname_private_hosted_zone, 'CNAME', '.'.join((private_host_name, private_hosted_zone_name)))
                                 except BaseException as e:
                                     print e
                             else:
                                 try:
-                                    delete_resource_record(cname_private_hosted_zone_id, cname_host_name, cname_private_hosted_zone, 'CNAME', private_dns_name)
+                                    delete_resource_record(cname_private_hosted_zone_id, cname_host_name, cname_private_hosted_zone, 'CNAME', '.'.join((private_host_name, private_hosted_zone_name)))
                                 except BaseException as e:
                                     print e
                 for cname_public_hosted_zone in public_hosted_zones_collection:
@@ -252,13 +258,13 @@ def lambda_handler(event, context):
                         exit()
                 try:
                     create_resource_record(private_hosted_zone_id, private_host_name, private_hosted_zone_name, 'A', private_ip)
-                    create_resource_record(reverse_lookup_zone_id, reversed_ip_address, 'in-addr.arpa', 'PTR', private_dns_name)
+                    create_resource_record(reverse_lookup_zone_id, reversed_ip_address, 'in-addr.arpa', 'PTR', '.'.join((private_host_name, private_hosted_zone_name)))
                 except BaseException as e:
                     print e
             else:
                 try:
                     delete_resource_record(private_hosted_zone_id, private_host_name, private_hosted_zone_name, 'A', private_ip)
-                    delete_resource_record(reverse_lookup_zone_id, reversed_ip_address, 'in-addr.arpa', 'PTR', private_dns_name)
+                    delete_resource_record(reverse_lookup_zone_id, reversed_ip_address, 'in-addr.arpa', 'PTR', '.'.join((private_host_name, private_hosted_zone_name)))
                 except BaseException as e:
                     print e
         else:
