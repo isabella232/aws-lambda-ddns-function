@@ -13,8 +13,10 @@ ec2 = boto3.resource('ec2')
 compute = boto3.client('ec2')
 dynamodb_client = boto3.client('dynamodb')
 dynamodb_resource = boto3.resource('dynamodb')
+role_tags = ['clusterid', 'elasticbeanstalk:environment-name']
 
 def lambda_handler(event, context):
+
     """ Check to see whether a DynamoDB table already exists.  If not, create it.  This table is used to keep a record of
     instances that have been created along with their attributes.  This is necessary because when you terminate an instance
     its attributes are no longer available, so they have to be fetched from the table."""
@@ -34,7 +36,22 @@ def lambda_handler(event, context):
     table = dynamodb_resource.Table('DDNS')
 
     if state == 'running':
-        instance = compute.describe_instances(InstanceIds=[instance_id])
+        # Reload the instance until we find expected tags
+        tries = 5
+        while tries > 0:
+            instance = compute.describe_instances(InstanceIds=[instance_id])
+            tries = tries - 1
+            try:
+                # Search for tags matching role_tags
+                tags = instance['Reservations'][0]['Instances'][0]['Tags']
+                next((t["Value"] for t in tags if t["Key"].lower() in role_tags))
+            except:
+                # Wait and try again
+                print("Waiting for tags matching {} on {} - Tags: {}".format(role_tags, instance_id, tags))
+                time.sleep(5)
+                continue
+            break
+
         # Remove response metadata from the response
         instance.pop('ResponseMetadata')
         # Remove null values from the response.  You cannot save a dict/JSON document in DynamoDB if it contains null
@@ -65,9 +82,7 @@ def lambda_handler(event, context):
     except:
         tags = []
 
-    cluster_id = next(
-        (t["Value"] for t in tags if t["Key"].lower() in ["clusterid", "elasticbeanstalk:environment-name"]),
-        'noroledef')
+    cluster_id = next((t["Value"] for t in tags if t["Key"].lower() in role_tags), 'noroledef')
     instance_id = instance['Reservations'][0]['Instances'][0]['InstanceId']
     # Get instance attributes
     private_ip = instance['Reservations'][0]['Instances'][0]['PrivateIpAddress']
